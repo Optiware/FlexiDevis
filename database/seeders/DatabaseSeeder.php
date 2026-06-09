@@ -21,7 +21,7 @@ class DatabaseSeeder extends Seeder
 
         $this->command->info('Table users vidée avec succès.');
 
-        // 1. Ton compte Admin
+        // 1. Le compte Admin
         User::create([
             'name' => 'Alexis Admin',
             'email' => 'alexis@flexidevis.com',

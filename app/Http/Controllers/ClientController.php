@@ -50,7 +50,6 @@ class ClientController extends Controller
     // --- MISE À JOUR ICI ---
     public function show(string $id): View
     {
-        // 1. Récupérer le client et ses documents (triés par date décroissante)
         $client = Client::where('id_client', $id)
             ->where('id_utilisateur', auth()->id())
             ->with(['documents' => function($query) {
@@ -58,7 +57,7 @@ class ClientController extends Controller
             }])
             ->firstOrFail();
 
-        // 2. Calculer le total des achats (Factures validées/payées uniquement)
+
         $totalAchat = $client->documents
             ->where('type_document', 'Facture')
             ->whereIn('statut', ['Valide', 'Paye', 'Accepte'])

@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Document;
 use App\Models\Client;
-use App\Models\Product; // <--- IMPORTER LE MODÈLE PRODUIT
+use App\Models\Product;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -35,11 +35,9 @@ class DocumentController extends Controller
     {
         $clients = Client::where('id_utilisateur', auth()->id())->get();
 
-        // --- RECUPERATION DES PRODUITS ---
         $products = Product::where('id_utilisateur', auth()->id())
             ->orderBy('designation')
             ->get();
-        // ---------------------------------
 
         $typeParDefaut = $request->query('type', 'Devis');
 
@@ -59,7 +57,6 @@ class DocumentController extends Controller
         $prefixe = ($typeParDefaut === 'Devis') ? 'D' : 'F';
         $prochainNumero = sprintf('%s-%s-%04d', $prefixe, $anneeCourante, $sequence);
 
-        // On passe 'products' à la vue
         return view('documents.create', compact('clients', 'products', 'typeParDefaut', 'prochainNumero'));
     }
 
@@ -82,6 +79,7 @@ class DocumentController extends Controller
         $document->date_echeance = $request->input('date_echeance');
         $document->statut = 'Brouillon';
         $document->notes = $request->input('notes');
+        $document->remise_globale = $request->input('remise_globale', 0);
         $document->design_template = $request->input('design_template', 'classic');
 
         if ($request->hasFile('logo')) {
@@ -96,33 +94,37 @@ class DocumentController extends Controller
 
         $globalTotalHT = 0;
         $globalTotalTVA = 0;
-        $globalTotalTTC = 0;
 
         if ($request->has('lignes')) {
             foreach ($request->input('lignes') as $ligne) {
                 $quantite = $ligne['quantite'] ?? 0;
                 $prixUnitaire = $ligne['prix_unitaire'] ?? 0;
                 $tauxTva = $ligne['tva'] ?? 20;
+                $remise = $ligne['remise_percent'] ?? 0;
 
-                $ligneHt = $quantite * $prixUnitaire;
+                $montantBrut = $quantite * $prixUnitaire;
+                $ligneHt = $montantBrut - ($montantBrut * ($remise / 100));
                 $ligneTva = $ligneHt * ($tauxTva / 100);
                 $ligneTtc = $ligneHt + $ligneTva;
 
                 $globalTotalHT += $ligneHt;
                 $globalTotalTVA += $ligneTva;
-                $globalTotalTTC += $ligneTtc;
 
                 $document->lignes()->create([
                     'description'   => $ligne['description'] ?? 'Sans titre',
                     'quantite'      => $quantite,
                     'prix_unitaire' => $prixUnitaire,
                     'taux_tva'      => $tauxTva,
+                    'remise_percent'=> $remise,
                     'montant_ht'    => $ligneHt,
                     'montant_tva'   => $ligneTva,
                     'montant_ttc'   => $ligneTtc,
                 ]);
             }
         }
+
+        $globalTotalBrutTTC = $globalTotalHT + $globalTotalTVA;
+        $globalTotalTTC = $globalTotalBrutTTC - ($globalTotalBrutTTC * ($document->remise_globale / 100));
 
         $document->total_ht = $globalTotalHT;
         $document->total_tva = $globalTotalTVA;
@@ -150,11 +152,9 @@ class DocumentController extends Controller
 
         $clients = Client::where('id_utilisateur', auth()->id())->get();
 
-        // --- RECUPERATION DES PRODUITS ---
         $products = Product::where('id_utilisateur', auth()->id())
             ->orderBy('designation')
             ->get();
-        // ---------------------------------
 
         return view('documents.edit', compact('document', 'clients', 'products'));
     }
@@ -178,6 +178,7 @@ class DocumentController extends Controller
         $document->date_echeance = $request->input('date_echeance');
         $document->statut = $request->input('statut', 'Brouillon');
         $document->notes = $request->input('notes');
+        $document->remise_globale = $request->input('remise_globale', 0);
         $document->design_template = $request->input('design_template', 'classic');
 
         if ($request->hasFile('logo')) {
@@ -192,33 +193,37 @@ class DocumentController extends Controller
 
         $globalTotalHT = 0;
         $globalTotalTVA = 0;
-        $globalTotalTTC = 0;
 
         if ($request->has('lignes')) {
             foreach ($request->input('lignes') as $ligne) {
                 $quantite = $ligne['quantite'] ?? 0;
                 $prixUnitaire = $ligne['prix_unitaire'] ?? 0;
                 $tauxTva = $ligne['tva'] ?? 20;
+                $remise = $ligne['remise_percent'] ?? 0;
 
-                $ligneHt = $quantite * $prixUnitaire;
+                $montantBrut = $quantite * $prixUnitaire;
+                $ligneHt = $montantBrut - ($montantBrut * ($remise / 100));
                 $ligneTva = $ligneHt * ($tauxTva / 100);
                 $ligneTtc = $ligneHt + $ligneTva;
 
                 $globalTotalHT += $ligneHt;
                 $globalTotalTVA += $ligneTva;
-                $globalTotalTTC += $ligneTtc;
 
                 $document->lignes()->create([
                     'description'   => $ligne['description'] ?? 'Sans titre',
                     'quantite'      => $quantite,
                     'prix_unitaire' => $prixUnitaire,
                     'taux_tva'      => $tauxTva,
+                    'remise_percent'=> $remise,
                     'montant_ht'    => $ligneHt,
                     'montant_tva'   => $ligneTva,
                     'montant_ttc'   => $ligneTtc,
                 ]);
             }
         }
+
+        $globalTotalBrutTTC = $globalTotalHT + $globalTotalTVA;
+        $globalTotalTTC = $globalTotalBrutTTC - ($globalTotalBrutTTC * ($document->remise_globale / 100));
 
         $document->total_ht = $globalTotalHT;
         $document->total_tva = $globalTotalTVA;

@@ -22,6 +22,7 @@ class Document extends Model
         'total_ht',
         'total_tva',
         'total_ttc',
+        'remise_globale',
         'conditions_reglement',
         'notes',
     ];

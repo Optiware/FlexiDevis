@@ -5,6 +5,7 @@
                 'description' => $ligne->description,
                 'quantite' => $ligne->quantite,
                 'prix' => $ligne->prix_unitaire,
+                'remise' => $ligne->remise_percent ?? 0,
                 'tva' => $ligne->taux_tva
             ];
         });
@@ -152,7 +153,6 @@
                     </div>
                     <input type="hidden" name="type_document" value="{{ $document->type_document }}">
 
-                    {{-- LIGNES DU DOCUMENT --}}
                     <div class="bg-gray-50 p-4 rounded-xl border border-gray-200">
                         <div class="flex justify-between items-center mb-3">
                             <h3 class="text-xs font-bold text-gray-500 uppercase">Lignes du devis</h3>
@@ -170,19 +170,25 @@
                                         </div>
                                     </div>
                                     <div class="grid grid-cols-12 gap-2">
-                                        <div class="col-span-3">
+                                        <div class="col-span-2">
                                             <label class="text-[10px] text-gray-400 block">Qté</label>
                                             <input x-model="item.quantite" type="number" step="0.1" class="w-full text-xs border-gray-200 rounded p-1 text-right bg-gray-50">
                                         </div>
-                                        <div class="col-span-4">
+                                        <div class="col-span-3">
                                             <label class="text-[10px] text-gray-400 block">Prix</label>
                                             <input x-model="item.prix" type="number" step="0.01" class="w-full text-xs border-gray-200 rounded p-1 text-right bg-gray-50">
+                                        </div>
+                                        <div class="col-span-2">
+                                            <label class="text-[10px] text-gray-400 block">Remise %</label>
+                                            <input x-model="item.remise" type="number" step="0.01" class="w-full text-xs border-gray-200 rounded p-1 text-right bg-gray-50">
                                         </div>
                                         <div class="col-span-3">
                                             <label class="text-[10px] text-gray-400 block">TVA %</label>
                                             <select x-model="item.tva" class="w-full text-xs border-gray-200 rounded p-1 text-right bg-gray-50 pr-4">
                                                 <option value="20">20</option>
                                                 <option value="10">10</option>
+                                                <option value="5.5">5.5</option>
+                                                <option value="2.1">2.1</option>
                                                 <option value="0">0</option>
                                             </select>
                                         </div>
@@ -197,9 +203,15 @@
                                     <input type="hidden" :name="'lignes['+index+'][quantite]'" :value="item.quantite">
                                     <input type="hidden" :name="'lignes['+index+'][prix_unitaire]'" :value="item.prix">
                                     <input type="hidden" :name="'lignes['+index+'][tva]'" :value="item.tva">
+                                    <input type="hidden" :name="'lignes['+index+'][remise_percent]'" :value="item.remise">
                                 </div>
                             </template>
                         </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="block text-xs font-bold text-gray-700 mb-1">Remise globale sur le devis (%)</label>
+                        <input type="number" name="remise_globale" x-model="remiseGlobale" step="0.01" min="0" max="100" class="w-1/3 rounded-lg border-gray-300 text-sm focus:border-blue-500 focus:ring-blue-500" placeholder="Ex: 5">
                     </div>
 
                     <div>
@@ -318,7 +330,7 @@
                                     <td class="py-4 px-4 text-sm font-medium text-gray-900" x-text="item.description || '...'"></td>
                                     <td class="py-4 px-4 text-sm text-right" x-text="item.quantite"></td>
                                     <td class="py-4 px-4 text-sm text-right" x-text="parseFloat(item.prix).toFixed(2) + ' €'"></td>
-                                    <td class="py-4 px-4 text-sm text-right font-bold text-gray-900" x-text="(item.quantite * item.prix).toFixed(2) + ' €'"></td>
+                                    <td class="py-4 px-4 text-sm text-right font-bold text-gray-900" x-text="((item.quantite * item.prix) - ((item.quantite * item.prix) * (Number(item.remise) / 100))).toFixed(2) + ' €'"></td>
                                 </tr>
                             </template>
                             </tbody>
@@ -335,6 +347,14 @@
                                 <span>TVA (Moyenne)</span>
                                 <span class="font-medium" x-text="calculateTotalTVA() + ' €'"></span>
                             </div>
+
+                            <template x-if="remiseGlobale > 0">
+                                <div class="flex justify-between text-sm text-red-500 font-medium">
+                                    <span>Remise globale (<span x-text="remiseGlobale"></span>%)</span>
+                                    <span x-text="'-' + (((Number(calculateTotalHT()) + Number(calculateTotalTVA())) * (Number(remiseGlobale) / 100)).toFixed(2)) + ' €'"></span>
+                                </div>
+                            </template>
+
                             <div class="border-t border-gray-200 pt-3 flex justify-between items-center">
                                 <span class="text-lg font-bold">Total TTC</span>
                                 <span class="text-2xl font-bold"
@@ -364,9 +384,10 @@
                 dateEmission: documentData.date_emission ? documentData.date_emission.substring(0, 10) : '',
                 dateEcheance: documentData.date_echeance ? documentData.date_echeance.substring(0, 10) : '',
                 notes: documentData.notes || '',
+                remiseGlobale: documentData.remise_globale || 0,
 
                 items: lignesExistantes.length > 0 ? lignesExistantes : [
-                    { description: 'Service initial', quantite: 1, prix: 0, tva: 20 }
+                    { description: 'Service initial', quantite: 1, prix: 0, tva: 20, remise: 0 }
                 ],
 
                 logoPreview: logoUrlExistante || null,
@@ -401,7 +422,8 @@
                         description: '',
                         quantite: 1,
                         prix: 0,
-                        tva: 20
+                        tva: 20,
+                        remise: 0
                     });
                 },
 
@@ -414,22 +436,26 @@
                 calculateTotalHT(){
                     let total =0;
                     this.items.forEach(item => {
-                        let  montantLigne = Number(item.quantite) * Number(item.prix);
-                        total +=montantLigne;
+                        let montantLigne = Number(item.quantite) * Number(item.prix);
+                        montantLigne = montantLigne - (montantLigne * (Number(item.remise) / 100));
+                        total += montantLigne;
                     })
                     return total.toFixed(2);
                 },
 
                 calculateTotalTVA(){
                     const totalTVA = this.items.reduce((sum, item)=> {
-                        const ligneHT = Number(item.quantite) * Number(item.prix);
+                        let ligneHT = Number(item.quantite) * Number(item.prix);
+                        ligneHT = ligneHT - (ligneHT * (Number(item.remise) / 100));
                         return sum + (ligneHT *(Number(item.tva)/100));
                     },0);
                     return totalTVA.toFixed(2);
                 },
 
                 calculateTotalTTC(){
-                    return (Number(this.calculateTotalHT()) + Number(this.calculateTotalTVA())).toFixed(2);
+                    let totalTTC = Number(this.calculateTotalHT()) + Number(this.calculateTotalTVA());
+                    totalTTC = totalTTC - (totalTTC * (Number(this.remiseGlobale) / 100));
+                    return totalTTC.toFixed(2);
                 },
 
                 getClientName(){
