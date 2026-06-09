@@ -139,13 +139,8 @@
                                         </select>
                                     </div>
 
-                                    <div class="grid grid-cols-12 gap-2 mb-2">
-                                        <div class="col-span-12">
-                                            <input x-model="item.description" placeholder="Description de la prestation" class="w-full text-sm border-0 border-b border-gray-100 p-0 pb-1 focus:ring-0 placeholder-gray-400 font-medium text-gray-800">
-                                        </div>
-                                    </div>
                                     <div class="grid grid-cols-12 gap-2">
-                                        <div class="col-span-3">
+                                        <div class="col-span-2">
                                             <label class="text-[10px] text-gray-400 block">Qté</label>
                                             <input x-model="item.quantite" type="number" step="0.1" class="w-full text-xs border-gray-200 rounded p-1 text-right bg-gray-50">
 
@@ -154,9 +149,15 @@
                                                 <span>Stock bas (Reste: <span x-text="getStockAmount(item)"></span>)</span>
                                             </div>
                                         </div>
-                                        <div class="col-span-4">
+                                        <div class="col-span-3">
                                             <label class="text-[10px] text-gray-400 block">Prix</label>
                                             <input x-model="item.prix" type="number" step="0.01" class="w-full text-xs border-gray-200 rounded p-1 text-right bg-gray-50">
+                                        </div>
+
+
+                                        <div class="col-span-2">
+                                            <label class="text-[10px] text-gray-400 block">Remise %</label>
+                                            <input x-model="item.remise" type="number" step="0.01" class="w-full text-xs border-gray-200 rounded p-1 text-right bg-gray-50">
                                         </div>
                                         <div class="col-span-3">
                                             <label class="text-[10px] text-gray-400 block">TVA %</label>
@@ -179,9 +180,18 @@
                                     <input type="hidden" :name="'lignes['+index+'][quantite]'" :value="item.quantite">
                                     <input type="hidden" :name="'lignes['+index+'][prix_unitaire]'" :value="item.prix">
                                     <input type="hidden" :name="'lignes['+index+'][tva]'" :value="item.tva">
+
+
+                                    <input type="hidden" :name="'lignes['+index+'][remise_percent]'" :value="item.remise">
                                 </div>
                             </template>
                         </div>
+                    </div>
+
+
+                    <div class="mb-4">
+                        <label class="block text-xs font-bold text-gray-700 mb-1">Remise globale sur le devis (%)</label>
+                        <input type="number" name="remise_globale" x-model="remiseGlobale" step="0.01" min="0" max="100" class="w-1/3 rounded-lg border-gray-300 text-sm focus:border-blue-500 focus:ring-blue-500" placeholder="Ex: 5">
                     </div>
 
                     <div>
@@ -290,7 +300,7 @@
                                     </td>
                                     <td class="py-4 px-4 text-sm text-right" x-text="item.quantite"></td>
                                     <td class="py-4 px-4 text-sm text-right" x-text="parseFloat(item.prix).toFixed(2) + ' €'"></td>
-                                    <td class="py-4 px-4 text-sm text-right font-bold text-gray-900" x-text="(item.quantite * item.prix).toFixed(2) + ' €'"></td>
+                                    <td class="py-4 px-4 text-sm text-right font-bold text-gray-900" x-text="((item.quantite * item.prix) - ((item.quantite * item.prix) * (Number(item.remise) / 100))).toFixed(2) + ' €'"></td>
                                 </tr>
                             </template>
                             </tbody>
@@ -307,6 +317,14 @@
                                 <span>TVA (Moyenne)</span>
                                 <span class="font-medium" x-text="calculateTotalTVA() + ' €'"></span>
                             </div>
+
+                            <template x-if="remiseGlobale > 0">
+                                <div class="flex justify-between text-sm text-red-500 font-medium">
+                                    <span>Remise globale (<span x-text="remiseGlobale"></span>%)</span>
+                                    <span x-text="'-' + (((Number(calculateTotalHT()) + Number(calculateTotalTVA())) * (Number(remiseGlobale) / 100)).toFixed(2)) + ' €'"></span>
+                                </div>
+                            </template>
+
                             <div class="border-t border-gray-200 pt-3 flex justify-between items-center">
                                 <span class="text-lg font-bold">Total TTC</span>
                                 <span class="text-2xl font-bold"
@@ -336,8 +354,9 @@
                 dateEmission:'',
                 dateEcheance:'',
                 notes:'',
+                remiseGlobale: 0,
                 items: [
-                    { product_id: '', description: 'Service initial', quantite: 1, prix: 0, tva: 20 }
+                    { product_id: '', description: 'Service initial', quantite: 1, prix: 0, tva: 20, remise: 20 }
                 ],
                 logoPreview: null,
                 dragover: false,
@@ -372,18 +391,18 @@
                         description: '',
                         quantite: 1,
                         prix: 0,
-                        tva: 20
+                        tva: 20,
+                        remise: 0,
                     });
                 },
 
-                // MAGIE : Remplissage auto
+
                 fillProduct(index) {
                     let item = this.items[index];
-                    // On cherche le produit dans la liste complète
                     let selectedProduct = this.products.find(p => p.id_produit == item.product_id);
 
                     if (selectedProduct) {
-                        // Concatène désignation et description s'il y en a une
+
                         let fullDesc = selectedProduct.designation;
                         if(selectedProduct.description) {
                             fullDesc += ' - ' + selectedProduct.description;
@@ -395,7 +414,6 @@
                     }
                 },
 
-                // --- NOUVELLES FONCTIONS POUR LE STOCK ---
                 isStockInsufficient(item) {
                     if (!item.product_id) return false;
                     const product = this.products.find(p => p.id_produit == item.product_id);
@@ -408,7 +426,7 @@
                     const product = this.products.find(p => p.id_produit == item.product_id);
                     return product ? product.stock_actuel : 0;
                 },
-                // ----------------------------------------
+
 
                 removeItem(index){
                     if(this.items.length > 1) {
@@ -419,22 +437,33 @@
                 calculateTotalHT(){
                     let total =0;
                     this.items.forEach(item => {
-                        let  montantLigne = Number(item.quantite) * Number(item.prix);
-                        total +=montantLigne;
+                        let montantLigne = Number(item.quantite) * Number(item.prix);
+
+                        montantLigne = montantLigne - (montantLigne * (Number(item.remise) / 100));
+
+                        total += montantLigne;
                     })
                     return total.toFixed(2);
                 },
 
                 calculateTotalTVA(){
                     const totalTVA = this.items.reduce((sum, item)=> {
-                        const ligneHT = Number(item.quantite) * Number(item.prix);
+                        let ligneHT = Number(item.quantite) * Number(item.prix);
+
+                        ligneHT = ligneHT - (ligneHT * (Number(item.remise) / 100));
+
                         return sum + (ligneHT *(Number(item.tva)/100));
                     },0);
                     return totalTVA.toFixed(2);
                 },
 
                 calculateTotalTTC(){
-                    return (Number(this.calculateTotalHT()) + Number(this.calculateTotalTVA())).toFixed(2);
+
+                    let totalTTC = Number(this.calculateTotalHT()) + Number(this.calculateTotalTVA());
+
+                    totalTTC = totalTTC - (totalTTC * (Number(this.remiseGlobale) / 100));
+
+                    return totalTTC.toFixed(2);
                 },
 
                 getClientName(){
