@@ -32,6 +32,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/products/import', [ProductController::class, 'import'])->name('products.import');
     Route::resource('products', ProductController::class);
 
+    Route::post('/documents/{id}/duplicate', [App\Http\Controllers\DocumentController::class, 'duplicate'])->name('documents.duplicate');
+
     // Routes pour le pdf
     Route::get('/documents/{id}/download', [DocumentController::class, 'download'])->name('documents.download');
     Route::resource('documents', DocumentController::class);

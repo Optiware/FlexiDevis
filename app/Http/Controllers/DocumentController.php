@@ -235,6 +235,54 @@ class DocumentController extends Controller
         return redirect()->route('documents.index')->with('success', 'Document mis à jour avec succès !');
     }
 
+    public function duplicate(string $id): RedirectResponse
+    {
+        $originalDocument = Document::with('lignes')->where('id_document', $id)
+            ->where('id_utilisateur', auth()->id())
+            ->firstOrFail();
+
+        $anneeCourante = date('Y');
+        $dernierDoc = Document::where('id_utilisateur', auth()->id())
+            ->whereYear('created_at', $anneeCourante)
+            ->latest('created_at')
+            ->first();
+
+        if ($dernierDoc) {
+            $parties = explode('-', $dernierDoc->numero);
+            $sequence = intval(end($parties)) + 1;
+        } else {
+            $sequence = 1;
+        }
+
+        $prefixe = ($originalDocument->type_document === 'Devis') ? 'D' : 'F';
+        $nouveauNumero = sprintf('%s-%s-%04d', $prefixe, $anneeCourante, $sequence);
+
+        $nouveauDocument = $originalDocument->replicate();
+        $nouveauDocument->numero = $nouveauNumero;
+        $nouveauDocument->statut = 'Brouillon';
+        $nouveauDocument->date_emission = now()->format('Y-m-d');
+        $nouveauDocument->date_echeance = now()->addDays(30)->format('Y-m-d');
+        $nouveauDocument->created_at = now();
+        $nouveauDocument->updated_at = now();
+        $nouveauDocument->save();
+
+        foreach ($originalDocument->lignes as $ligne) {
+            $nouveauDocument->lignes()->create([
+                'description'   => $ligne->description,
+                'quantite'      => $ligne->quantite,
+                'prix_unitaire' => $ligne->prix_unitaire,
+                'taux_tva'      => $ligne->taux_tva,
+                'remise_percent'=> $ligne->remise_percent,
+                'montant_ht'    => $ligne->montant_ht,
+                'montant_tva'   => $ligne->montant_tva,
+                'montant_ttc'   => $ligne->montant_ttc,
+            ]);
+        }
+
+        return redirect()->route('documents.edit', $nouveauDocument->id_document)
+            ->with('success', 'Document dupliqué avec succès !');
+    }
+
     public function destroy(string $id): RedirectResponse
     {
         $document = Document::where('id_document', $id)
