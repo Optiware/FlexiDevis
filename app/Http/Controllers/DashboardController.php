@@ -62,10 +62,10 @@ class DashboardController extends Controller
             $queryGraph->where('id_client', $clientId);
         }
 
-        $ventesParMois = $queryGraph->selectRaw('MONTH(date_emission) as mois, SUM(total_ht) as total')
-            ->groupBy('mois')
-            ->orderBy('mois')
-            ->pluck('total', 'mois')
+        // Regroupement par mois en PHP : MONTH() n'existe pas sous SQLite (tests, démo).
+        $ventesParMois = $queryGraph->get(['date_emission', 'total_ht'])
+            ->groupBy(fn (Document $document) => (int) $document->date_emission->format('n'))
+            ->map(fn ($documents) => round((float) $documents->sum('total_ht'), 2))
             ->toArray();
 
         $dataGraphique = [];

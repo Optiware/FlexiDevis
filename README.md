@@ -1,59 +1,77 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# FlexiDevis
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Application web de **devis et factures** pour artisans et petites entreprises : clients,
+catalogue produits avec suivi du stock, devis et factures calculés en direct, export PDF.
 
-## About Laravel
+![Tableau de bord](docs/captures/tableau-de-bord.png)
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Fonctionnalités
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+- **Devis et factures** : lignes avec quantité, prix, TVA et remise ; remise globale ;
+  aperçu en direct pendant la saisie ; 4 modèles de mise en page ; logo ; export PDF.
+- **Numérotation automatique** : `D-2026-0001` pour les devis, `F-2026-0001` pour les factures,
+  une suite par type et par année, sans doublon.
+- **Suivi** : statuts (brouillon, validé, accepté, refusé, payé, impayé), duplication d'un
+  document, filtre par client.
+- **Clients et produits** : fiches, import CSV, alerte de stock bas.
+- **Tableau de bord** : chiffre d'affaires facturé, évolution mensuelle, meilleurs clients.
+- **Compte** : coordonnées de l'entreprise (raison sociale, SIRET, adresse) reprises en tête
+  des documents ; chaque utilisateur ne voit que ses propres données.
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+| Devis & factures | Saisie d'un devis | Stock |
+| --- | --- | --- |
+| ![Documents](docs/captures/documents.png) | ![Nouveau devis](docs/captures/nouveau-devis.png) | ![Produits](docs/captures/produits.png) |
 
-## Learning Laravel
+## Calcul des montants
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+Le même calcul sert au serveur (`app/Services/CalculDocument.php`) et à l'aperçu en direct :
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+1. ligne : quantité × prix unitaire, moins la remise de la ligne, puis sa TVA ;
+2. la remise globale réduit la base HT, donc aussi la TVA ;
+3. Total TTC = Total HT + Total TVA, arrondis au centime.
 
-## Laravel Sponsors
+## Technologies
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+- PHP 8.2+, **Laravel 12** (Breeze pour l'authentification), Blade, Alpine.js, Tailwind CSS
+- MySQL 8 en production, SQLite pour le développement et les tests
+- DomPDF pour les PDF
+- Pest (42 tests), GitHub Actions
 
-### Premium Partners
+## Lancer le projet
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+```bash
+composer install && npm install
+cp .env.example .env
+php artisan key:generate
+touch database/database.sqlite      # ou MySQL : voir .env.example et docker compose up -d
+php artisan migrate --seed          # comptes et données de démonstration
+npm run build
+php artisan serve                   # http://127.0.0.1:8000
+```
 
-## Contributing
+Compte de démonstration : `alexis@flexidevis.com`, mot de passe `password`.
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+## Tests
 
-## Code of Conduct
+```bash
+php artisan test
+```
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+Ils couvrent le calcul des montants, la numérotation, l'isolement des comptes (impossible
+d'utiliser le client ou de voir le document d'un autre compte), la duplication, le PDF, le
+tableau de bord, le profil et toute l'authentification. Ils passent sur SQLite et MySQL.
 
-## Security Vulnerabilities
+## Structure
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+```
+app/Services/CalculDocument.php     montants des lignes et totaux
+app/Services/Numerotation.php       numéros D-/F-AAAA-NNNN
+app/Http/Controllers/               documents, clients, produits, tableau de bord
+resources/views/documents/          saisie, aperçu, totaux partagés avec le PDF
+resources/views/pdf/document.blade.php
+tests/                              Pest
+```
 
-## License
+## Auteur
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+Alexis Renazé – [github.com/Optiware](https://github.com/Optiware)
