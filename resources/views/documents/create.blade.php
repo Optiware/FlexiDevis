@@ -309,21 +309,26 @@
 
                     <div class="flex justify-end mb-12">
                         <div class="w-1/2 space-y-3">
+                            <template x-if="remiseGlobale > 0">
+                                <div class="space-y-3">
+                                    <div class="flex justify-between text-sm text-gray-500">
+                                        <span>Total HT des lignes</span>
+                                        <span class="font-medium" x-text="calculateTotalLignesHT() + ' €'"></span>
+                                    </div>
+                                    <div class="flex justify-between text-sm text-red-500 font-medium">
+                                        <span>Remise globale (<span x-text="remiseGlobale"></span>%)</span>
+                                        <span x-text="'- ' + calculateRemise() + ' €'"></span>
+                                    </div>
+                                </div>
+                            </template>
                             <div class="flex justify-between text-sm text-gray-500">
                                 <span>Total HT</span>
                                 <span class="font-medium" x-text="calculateTotalHT() + ' €'"></span>
                             </div>
                             <div class="flex justify-between text-sm text-gray-500">
-                                <span>TVA (Moyenne)</span>
+                                <span>Total TVA</span>
                                 <span class="font-medium" x-text="calculateTotalTVA() + ' €'"></span>
                             </div>
-
-                            <template x-if="remiseGlobale > 0">
-                                <div class="flex justify-between text-sm text-red-500 font-medium">
-                                    <span>Remise globale (<span x-text="remiseGlobale"></span>%)</span>
-                                    <span x-text="'-' + (((Number(calculateTotalHT()) + Number(calculateTotalTVA())) * (Number(remiseGlobale) / 100)).toFixed(2)) + ' €'"></span>
-                                </div>
-                            </template>
 
                             <div class="border-t border-gray-200 pt-3 flex justify-between items-center">
                                 <span class="text-lg font-bold">Total TTC</span>
@@ -434,36 +439,37 @@
                     }
                 },
 
+                // Même calcul que le serveur (app/Services/CalculDocument.php) :
+                // la remise globale réduit le HT, puis la TVA ; TTC = HT + TVA.
+                ligneHT(item){
+                    const brut = Number(item.quantite) * Number(item.prix);
+                    return Math.round(brut * (1 - Number(item.remise || 0) / 100) * 100) / 100;
+                },
+
+                coefficientRemise(){
+                    return 1 - Number(this.remiseGlobale || 0) / 100;
+                },
+
+                calculateTotalLignesHT(){
+                    return this.items.reduce((sum, item) => sum + this.ligneHT(item), 0).toFixed(2);
+                },
+
+                calculateRemise(){
+                    return (Number(this.calculateTotalLignesHT()) - Number(this.calculateTotalHT())).toFixed(2);
+                },
+
                 calculateTotalHT(){
-                    let total =0;
-                    this.items.forEach(item => {
-                        let montantLigne = Number(item.quantite) * Number(item.prix);
-
-                        montantLigne = montantLigne - (montantLigne * (Number(item.remise) / 100));
-
-                        total += montantLigne;
-                    })
-                    return total.toFixed(2);
+                    return (Number(this.calculateTotalLignesHT()) * this.coefficientRemise()).toFixed(2);
                 },
 
                 calculateTotalTVA(){
-                    const totalTVA = this.items.reduce((sum, item)=> {
-                        let ligneHT = Number(item.quantite) * Number(item.prix);
-
-                        ligneHT = ligneHT - (ligneHT * (Number(item.remise) / 100));
-
-                        return sum + (ligneHT *(Number(item.tva)/100));
-                    },0);
-                    return totalTVA.toFixed(2);
+                    const tvaLignes = this.items.reduce((sum, item) =>
+                        sum + Math.round(this.ligneHT(item) * Number(item.tva) / 100 * 100) / 100, 0);
+                    return (tvaLignes * this.coefficientRemise()).toFixed(2);
                 },
 
                 calculateTotalTTC(){
-
-                    let totalTTC = Number(this.calculateTotalHT()) + Number(this.calculateTotalTVA());
-
-                    totalTTC = totalTTC - (totalTTC * (Number(this.remiseGlobale) / 100));
-
-                    return totalTTC.toFixed(2);
+                    return (Number(this.calculateTotalHT()) + Number(this.calculateTotalTVA())).toFixed(2);
                 },
 
                 getClientName(){

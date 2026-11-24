@@ -96,4 +96,24 @@ class ProfileTest extends TestCase
 
         $this->assertNotNull($user->fresh());
     }
+
+    public function test_company_details_are_saved_for_the_document_header(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)->patch('/profile', [
+            'name' => $user->name,
+            'email' => $user->email,
+            'raison_sociale' => 'Atelier Martin',
+            'siret' => '123 456 789 00012',
+            'code_postal' => '69003',
+            'ville' => 'Lyon',
+            'email_contact' => 'contact@atelier.test',
+        ])->assertSessionHasNoErrors();
+
+        $user->refresh();
+        $this->assertSame('Atelier Martin', $user->raison_sociale);
+        $this->assertSame('Lyon', $user->ville);
+        $this->assertSame('contact@atelier.test', $user->email_contact);
+    }
 }

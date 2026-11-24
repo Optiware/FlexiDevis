@@ -146,14 +146,7 @@
 
                         <div class="flex justify-end mb-12">
                             <div class="w-1/2 space-y-3">
-                                <div class="flex justify-between text-sm text-gray-500">
-                                    <span>Total HT</span>
-                                    <span class="font-medium">{{ number_format($document->total_ht, 2, ',', ' ') }} €</span>
-                                </div>
-                                <div class="flex justify-between text-sm text-gray-500">
-                                    <span>Total TVA</span>
-                                    <span class="font-medium">{{ number_format($document->total_tva, 2, ',', ' ') }} €</span>
-                                </div>
+                                @include('documents._totaux', ['document' => $document])
                                 <div class="border-t border-gray-200 pt-3 flex justify-between items-center">
                                     <span class="text-lg font-bold">Total TTC</span>
                                     <span class="text-2xl font-bold"

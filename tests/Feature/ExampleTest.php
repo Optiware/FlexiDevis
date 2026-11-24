@@ -1,7 +1,11 @@
 <?php
 
-it('returns a successful response', function () {
-    $response = $this->get('/');
+it('envoie un visiteur non connecté vers la connexion', function () {
+    $this->get('/')->assertRedirect(route('login'));
+});
 
-    $response->assertStatus(200);
+it('envoie un utilisateur connecté vers son tableau de bord', function () {
+    $user = App\Models\User::factory()->create();
+
+    $this->actingAs($user)->get('/')->assertRedirect(route('dashboard'));
 });

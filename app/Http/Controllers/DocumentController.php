@@ -2,15 +2,18 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Document;
 use App\Models\Client;
+use App\Models\Document;
 use App\Models\Product;
-use Illuminate\Http\Request;
-use Illuminate\View\View;
-use Illuminate\Http\RedirectResponse;
-use Illuminate\Support\Facades\Storage;
+use App\Services\CalculDocument;
+use App\Services\Numerotation;
 use Barryvdh\DomPDF\Facade\Pdf;
-use App\Models\LigneDocument;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
+use Illuminate\View\View;
 
 class DocumentController extends Controller
 {
@@ -39,116 +42,51 @@ class DocumentController extends Controller
             ->orderBy('designation')
             ->get();
 
-        $typeParDefaut = $request->query('type', 'Devis');
-
-        $anneeCourante = date('Y');
-        $nombreDocuments = Document::where('id_utilisateur', auth()->id())
-            ->whereYear('created_at', $anneeCourante)
-            ->latest('created_at')
-            ->first();
-
-        if ($nombreDocuments) {
-            $parties = explode('-', $nombreDocuments->numero);
-            $sequence = intval(end($parties)) + 1;
-        } else {
-            $sequence = 1;
-        }
-
-        $prefixe = ($typeParDefaut === 'Devis') ? 'D' : 'F';
-        $prochainNumero = sprintf('%s-%s-%04d', $prefixe, $anneeCourante, $sequence);
+        $typeParDefaut = $request->query('type') === 'Facture' ? 'Facture' : 'Devis';
+        $prochainNumero = Numerotation::suivant(auth()->id(), $typeParDefaut);
 
         return view('documents.create', compact('clients', 'products', 'typeParDefaut', 'prochainNumero'));
     }
 
     public function store(Request $request): RedirectResponse
     {
-        $request->validate([
-            'id_client' => 'required|exists:clients,id_client',
+        $donnees = $request->validate([
+            'id_client' => ['required', $this->clientDuCompte()],
             'type_document' => 'required|in:Devis,Facture',
             'date_emission' => 'required|date',
-            'numero' => 'required|string|max:50',
+            'date_echeance' => 'nullable|date|after_or_equal:date_emission',
+            'numero' => [
+                'required', 'string', 'max:50',
+                Rule::unique('documents', 'numero')->where('id_utilisateur', auth()->id()),
+            ],
+            'notes' => 'nullable|string',
+            'design_template' => 'nullable|in:classic,minimal,bold,modern',
             'logo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+            ...$this->reglesMontants(),
         ]);
 
-        $document = new Document();
-        $document->id_utilisateur = auth()->id();
-        $document->id_client = $request->input('id_client');
-        $document->type_document = $request->input('type_document');
-        $document->numero = $request->input('numero');
-        $document->date_emission = $request->input('date_emission');
-        $document->date_echeance = $request->input('date_echeance');
-        $document->statut = 'Brouillon';
-        $document->notes = $request->input('notes');
-        $document->remise_globale = $request->input('remise_globale', 0);
-        $document->design_template = $request->input('design_template', 'classic');
-
-        if ($request->hasFile('logo')) {
-            $path = $request->file('logo')->store('logos', 'public');
-            $document->logo_path = $path;
-        }
-
-        $document->total_ht = 0;
-        $document->total_tva = 0;
-        $document->total_ttc = 0;
-        $document->save();
-
-        $globalTotalHT = 0;
-        $globalTotalTVA = 0;
-
-        if ($request->has('lignes')) {
-            foreach ($request->input('lignes') as $ligne) {
-                $quantite = $ligne['quantite'] ?? 0;
-                $prixUnitaire = $ligne['prix_unitaire'] ?? 0;
-                $tauxTva = $ligne['tva'] ?? 20;
-                $remise = $ligne['remise_percent'] ?? 0;
-
-                $montantBrut = $quantite * $prixUnitaire;
-                $ligneHt = $montantBrut - ($montantBrut * ($remise / 100));
-                $ligneTva = $ligneHt * ($tauxTva / 100);
-                $ligneTtc = $ligneHt + $ligneTva;
-
-                $globalTotalHT += $ligneHt;
-                $globalTotalTVA += $ligneTva;
-
-                $document->lignes()->create([
-                    'description'   => $ligne['description'] ?? 'Sans titre',
-                    'quantite'      => $quantite,
-                    'prix_unitaire' => $prixUnitaire,
-                    'taux_tva'      => $tauxTva,
-                    'remise_percent'=> $remise,
-                    'montant_ht'    => $ligneHt,
-                    'montant_tva'   => $ligneTva,
-                    'montant_ttc'   => $ligneTtc,
-                ]);
-            }
-        }
-
-        $globalTotalBrutTTC = $globalTotalHT + $globalTotalTVA;
-        $globalTotalTTC = $globalTotalBrutTTC - ($globalTotalBrutTTC * ($document->remise_globale / 100));
-
-        $document->total_ht = $globalTotalHT;
-        $document->total_tva = $globalTotalTVA;
-        $document->total_ttc = $globalTotalTTC;
-        $document->save();
+        DB::transaction(function () use ($request, $donnees) {
+            $document = new Document();
+            $document->id_utilisateur = auth()->id();
+            $document->type_document = $donnees['type_document'];
+            $document->numero = $donnees['numero'];
+            $document->statut = 'Brouillon';
+            $this->remplir($document, $request, $donnees);
+        });
 
         return redirect()->route('documents.index')->with('success', 'Document créé avec succès !');
     }
 
     public function show(string $id): View
     {
-        $document = Document::with(['lignes', 'client'])
-            ->where('id_document', $id)
-            ->where('id_utilisateur', auth()->id())
-            ->firstOrFail();
+        $document = $this->documentDuCompte($id, ['lignes', 'client']);
 
         return view('documents.show', compact('document'));
     }
 
     public function edit(string $id): View
     {
-        $document = Document::where('id_document', $id)
-            ->where('id_utilisateur', auth()->id())
-            ->firstOrFail();
+        $document = $this->documentDuCompte($id, ['lignes']);
 
         $clients = Client::where('id_utilisateur', auth()->id())->get();
 
@@ -161,153 +99,144 @@ class DocumentController extends Controller
 
     public function update(Request $request, string $id): RedirectResponse
     {
-        $document = Document::where('id_document', $id)
-            ->where('id_utilisateur', auth()->id())
-            ->firstOrFail();
+        $document = $this->documentDuCompte($id);
 
-        $request->validate([
-            'id_client' => 'required|exists:clients,id_client',
+        $donnees = $request->validate([
+            'id_client' => ['required', $this->clientDuCompte()],
             'date_emission' => 'required|date',
-            'logo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+            'date_echeance' => 'nullable|date|after_or_equal:date_emission',
             'statut' => 'required|in:Brouillon,Valide,Accepte,Refuse,Paye,Impaye',
             'notes' => 'nullable|string',
+            'design_template' => 'nullable|in:classic,minimal,bold,modern',
+            'logo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+            ...$this->reglesMontants(),
         ]);
 
-        $document->id_client = $request->input('id_client');
-        $document->date_emission = $request->input('date_emission');
-        $document->date_echeance = $request->input('date_echeance');
-        $document->statut = $request->input('statut', 'Brouillon');
-        $document->notes = $request->input('notes');
-        $document->remise_globale = $request->input('remise_globale', 0);
-        $document->design_template = $request->input('design_template', 'classic');
-
-        if ($request->hasFile('logo')) {
-            if ($document->logo_path) {
-                Storage::disk('public')->delete($document->logo_path);
-            }
-            $path = $request->file('logo')->store('logos', 'public');
-            $document->logo_path = $path;
-        }
-
-        $document->lignes()->delete();
-
-        $globalTotalHT = 0;
-        $globalTotalTVA = 0;
-
-        if ($request->has('lignes')) {
-            foreach ($request->input('lignes') as $ligne) {
-                $quantite = $ligne['quantite'] ?? 0;
-                $prixUnitaire = $ligne['prix_unitaire'] ?? 0;
-                $tauxTva = $ligne['tva'] ?? 20;
-                $remise = $ligne['remise_percent'] ?? 0;
-
-                $montantBrut = $quantite * $prixUnitaire;
-                $ligneHt = $montantBrut - ($montantBrut * ($remise / 100));
-                $ligneTva = $ligneHt * ($tauxTva / 100);
-                $ligneTtc = $ligneHt + $ligneTva;
-
-                $globalTotalHT += $ligneHt;
-                $globalTotalTVA += $ligneTva;
-
-                $document->lignes()->create([
-                    'description'   => $ligne['description'] ?? 'Sans titre',
-                    'quantite'      => $quantite,
-                    'prix_unitaire' => $prixUnitaire,
-                    'taux_tva'      => $tauxTva,
-                    'remise_percent'=> $remise,
-                    'montant_ht'    => $ligneHt,
-                    'montant_tva'   => $ligneTva,
-                    'montant_ttc'   => $ligneTtc,
-                ]);
-            }
-        }
-
-        $globalTotalBrutTTC = $globalTotalHT + $globalTotalTVA;
-        $globalTotalTTC = $globalTotalBrutTTC - ($globalTotalBrutTTC * ($document->remise_globale / 100));
-
-        $document->total_ht = $globalTotalHT;
-        $document->total_tva = $globalTotalTVA;
-        $document->total_ttc = $globalTotalTTC;
-
-        $document->statut = $request->input('statut');
-        $document->save();
+        DB::transaction(function () use ($request, $donnees, $document) {
+            $document->statut = $donnees['statut'];
+            $document->lignes()->delete();
+            $this->remplir($document, $request, $donnees);
+        });
 
         return redirect()->route('documents.index')->with('success', 'Document mis à jour avec succès !');
     }
 
     public function duplicate(string $id): RedirectResponse
     {
-        $originalDocument = Document::with('lignes')->where('id_document', $id)
-            ->where('id_utilisateur', auth()->id())
-            ->firstOrFail();
+        $original = $this->documentDuCompte($id, ['lignes']);
 
-        $anneeCourante = date('Y');
-        $dernierDoc = Document::where('id_utilisateur', auth()->id())
-            ->whereYear('created_at', $anneeCourante)
-            ->latest('created_at')
-            ->first();
+        $copie = DB::transaction(function () use ($original) {
+            $copie = $original->replicate();
+            $copie->numero = Numerotation::suivant(auth()->id(), $original->type_document);
+            $copie->statut = 'Brouillon';
+            $copie->date_emission = now()->format('Y-m-d');
+            $copie->date_echeance = now()->addDays(30)->format('Y-m-d');
 
-        if ($dernierDoc) {
-            $parties = explode('-', $dernierDoc->numero);
-            $sequence = intval(end($parties)) + 1;
-        } else {
-            $sequence = 1;
-        }
+            // La copie a son propre fichier de logo : supprimer l'un n'efface pas l'autre.
+            if ($original->logo_path && Storage::disk('public')->exists($original->logo_path)) {
+                $nouveau = 'logos/'.uniqid('copie_').'.'.pathinfo($original->logo_path, PATHINFO_EXTENSION);
+                Storage::disk('public')->copy($original->logo_path, $nouveau);
+                $copie->logo_path = $nouveau;
+            }
+            $copie->save();
 
-        $prefixe = ($originalDocument->type_document === 'Devis') ? 'D' : 'F';
-        $nouveauNumero = sprintf('%s-%s-%04d', $prefixe, $anneeCourante, $sequence);
+            foreach ($original->lignes as $ligne) {
+                $copie->lignes()->create($ligne->only([
+                    'ordre', 'description', 'quantite', 'prix_unitaire', 'taux_tva',
+                    'remise_percent', 'montant_ht', 'montant_tva', 'montant_ttc',
+                ]));
+            }
 
-        $nouveauDocument = $originalDocument->replicate();
-        $nouveauDocument->numero = $nouveauNumero;
-        $nouveauDocument->statut = 'Brouillon';
-        $nouveauDocument->date_emission = now()->format('Y-m-d');
-        $nouveauDocument->date_echeance = now()->addDays(30)->format('Y-m-d');
-        $nouveauDocument->created_at = now();
-        $nouveauDocument->updated_at = now();
-        $nouveauDocument->save();
+            return $copie;
+        });
 
-        foreach ($originalDocument->lignes as $ligne) {
-            $nouveauDocument->lignes()->create([
-                'description'   => $ligne->description,
-                'quantite'      => $ligne->quantite,
-                'prix_unitaire' => $ligne->prix_unitaire,
-                'taux_tva'      => $ligne->taux_tva,
-                'remise_percent'=> $ligne->remise_percent,
-                'montant_ht'    => $ligne->montant_ht,
-                'montant_tva'   => $ligne->montant_tva,
-                'montant_ttc'   => $ligne->montant_ttc,
-            ]);
-        }
-
-        return redirect()->route('documents.edit', $nouveauDocument->id_document)
+        return redirect()->route('documents.edit', $copie->id_document)
             ->with('success', 'Document dupliqué avec succès !');
     }
 
     public function destroy(string $id): RedirectResponse
     {
-        $document = Document::where('id_document', $id)
-            ->where('id_utilisateur', auth()->id())
-            ->firstOrFail();
-
-        if ($document->logo_path) {
-            Storage::disk('public')->delete($document->logo_path);
-        }
+        $document = $this->documentDuCompte($id);
+        $logo = $document->logo_path;
 
         $document->delete();
+        self::supprimerLogoSiInutilise($logo);
 
         return redirect()->route('documents.index')->with('success', 'Document supprimé.');
     }
 
-    public function download($id)
+    public function download(string $id)
     {
-        $document = Document::with(['lignes', 'client'])
+        $document = $this->documentDuCompte($id, ['lignes', 'client']);
+
+        $pdf = Pdf::loadView('pdf.document', compact('document'));
+        $fileName = $document->type_document.'-'.$document->numero.'.pdf';
+
+        return $pdf->download($fileName);
+    }
+
+    /** Supprime un logo seulement si plus aucun document ne l'utilise. */
+    public static function supprimerLogoSiInutilise(?string $chemin): void
+    {
+        if ($chemin && ! Document::where('logo_path', $chemin)->exists()) {
+            Storage::disk('public')->delete($chemin);
+        }
+    }
+
+    // ——— Outils ———
+
+    private function documentDuCompte(string $id, array $relations = []): Document
+    {
+        return Document::with($relations)
             ->where('id_document', $id)
             ->where('id_utilisateur', auth()->id())
             ->firstOrFail();
+    }
 
-        $pdf = Pdf::loadView('pdf.document', compact('document'));
-        $fileName = $document->type_document . '-' . $document->numero . '.pdf';
+    /** Le client doit exister ET appartenir au compte connecté. */
+    private function clientDuCompte()
+    {
+        return Rule::exists('clients', 'id_client')->where('id_utilisateur', auth()->id());
+    }
 
-        return $pdf->download($fileName);
+    private function reglesMontants(): array
+    {
+        return [
+            'remise_globale' => 'nullable|numeric|min:0|max:100',
+            'lignes' => 'nullable|array',
+            'lignes.*.description' => 'nullable|string|max:1000',
+            'lignes.*.quantite' => 'required|numeric|min:0',
+            'lignes.*.prix_unitaire' => 'required|numeric|min:0',
+            'lignes.*.tva' => 'nullable|numeric|min:0|max:100',
+            'lignes.*.remise_percent' => 'nullable|numeric|min:0|max:100',
+        ];
+    }
+
+    /** Champs communs à la création et à la modification, lignes et totaux compris. */
+    private function remplir(Document $document, Request $request, array $donnees): void
+    {
+        $document->id_client = $donnees['id_client'];
+        $document->date_emission = $donnees['date_emission'];
+        $document->date_echeance = $donnees['date_echeance'] ?? null;
+        $document->notes = $donnees['notes'] ?? null;
+        $document->remise_globale = $donnees['remise_globale'] ?? 0;
+        $document->design_template = $donnees['design_template'] ?? 'classic';
+
+        if ($request->hasFile('logo')) {
+            $ancien = $document->logo_path;
+            $document->logo_path = $request->file('logo')->store('logos', 'public');
+            $document->save();
+            self::supprimerLogoSiInutilise($ancien);
+        }
+
+        $calcul = CalculDocument::calculer($donnees['lignes'] ?? [], (float) $document->remise_globale);
+        $document->total_ht = $calcul['total_ht'];
+        $document->total_tva = $calcul['total_tva'];
+        $document->total_ttc = $calcul['total_ttc'];
+        $document->save();
+
+        foreach ($calcul['lignes'] as $ligne) {
+            $document->lignes()->create($ligne);
+        }
     }
 }

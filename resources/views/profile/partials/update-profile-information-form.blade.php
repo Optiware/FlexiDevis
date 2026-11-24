@@ -47,6 +47,35 @@
             @endif
         </div>
 
+        {{-- Coordonnées de l'entreprise : elles apparaissent en tête des devis et factures. --}}
+        <div class="border-t border-gray-200 pt-6">
+            <h3 class="text-base font-medium text-gray-900">Entreprise</h3>
+            <p class="mt-1 text-sm text-gray-600">Affichées en tête de vos devis et factures.</p>
+
+            <div class="mt-4 grid gap-4 sm:grid-cols-2">
+                @foreach ([
+                    'raison_sociale' => 'Raison sociale',
+                    'siret' => 'SIRET',
+                    'adresse' => 'Adresse',
+                    'code_postal' => 'Code postal',
+                    'ville' => 'Ville',
+                    'telephone' => 'Téléphone',
+                    'email_contact' => 'E-mail de contact',
+                ] as $champ => $libelle)
+                    <div @class(['sm:col-span-2' => $champ === 'adresse'])>
+                        <x-input-label :for="$champ" :value="$libelle" />
+                        <x-text-input :id="$champ" :name="$champ" :type="$champ === 'email_contact' ? 'email' : 'text'" class="mt-1 block w-full" :value="old($champ, $user->$champ)" />
+                        <x-input-error class="mt-2" :messages="$errors->get($champ)" />
+                    </div>
+                @endforeach
+                <div class="sm:col-span-2">
+                    <x-input-label for="mentions_legales" value="Mentions légales (bas de facture)" />
+                    <textarea id="mentions_legales" name="mentions_legales" rows="3" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">{{ old('mentions_legales', $user->mentions_legales) }}</textarea>
+                    <x-input-error class="mt-2" :messages="$errors->get('mentions_legales')" />
+                </div>
+            </div>
+        </div>
+
         <div class="flex items-center gap-4">
             <x-primary-button>{{ __('Save') }}</x-primary-button>
 

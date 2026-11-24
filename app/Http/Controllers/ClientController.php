@@ -6,7 +6,6 @@ use App\Models\Client;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Support\Facades\Storage;
 
 class ClientController extends Controller
 {
@@ -109,14 +108,14 @@ class ClientController extends Controller
             ->where('id_utilisateur', auth()->id())
             ->firstOrFail();
 
-        // On nettoie les logos des documents associés avant de supprimer
-        foreach ($client->documents as $document) {
-            if ($document->logo_path) {
-                Storage::disk('public')->delete($document->logo_path);
-            }
-        }
+        // Les documents partent avec le client (cascade) ; leurs logos ensuite, s'ils ne servent plus.
+        $logos = $client->documents->pluck('logo_path')->filter()->unique();
 
         $client->delete();
+
+        foreach ($logos as $logo) {
+            DocumentController::supprimerLogoSiInutilise($logo);
+        }
 
         return redirect()->route('clients.index')->with('success', 'Client supprimé avec succès.');
     }

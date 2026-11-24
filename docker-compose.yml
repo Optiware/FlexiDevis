@@ -1,15 +1,15 @@
-version: '3.8'
-
+# Base MySQL de FlexiDevis. Le mot de passe vient du .env (DB_PASSWORD).
+#   docker compose up -d
 services:
   mysql:
     image: mysql:8.0
     container_name: flexidevis_db
     restart: unless-stopped
     ports:
-      - "3306:3306"
+      - "${DB_PORT:-3306}:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: FlexiDevis
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:?définir DB_PASSWORD dans .env}
+      MYSQL_DATABASE: ${DB_DATABASE:-FlexiDevis}
     volumes:
       - flexidevis_mysql_data:/var/lib/mysql
 
