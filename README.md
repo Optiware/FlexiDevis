@@ -1,5 +1,7 @@
 # FlexiDevis
 
+[English version](README.en.md)
+
 Application web de **devis et factures** pour artisans et petites entreprises : clients,
 catalogue produits avec suivi du stock, devis et factures calculés en direct, export PDF.
 
